@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>対話型 算数・数学 作図スタジオ (機能拡張版)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body, html {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        .tool-overlay {
+            position: absolute;
+            pointer-events: auto;
+            cursor: grab;
+            transform-origin: center center;
+        }
+
+        .tool-overlay:active {
+            cursor: grabbing;
+        }
+
+        .rotate-handle {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            background-color: #3b82f6;
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            cursor: grab;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            z-index: 20;
+        }
+
+        .rotate-handle:hover {
+            transform: scale(1.15);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen w-screen flex flex-col justify-between overflow-hidden">
+
+    <!-- 上部ナビゲーションバー -->
+    <header class="bg-white border-b border-slate-200 px-3 py-2 flex flex-wrap items-center justify-between shadow-xs z-20 gap-2">
+        <div class="flex items-center space-x-2">
+            <div class="bg-indigo-600 text-white p-2 rounded-xl shadow-xs">
+                <i class="fa-solid font-bold fa-compass-drafting text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-slate-800 leading-tight">算数・数学 作図スタジオ</h1>
+                <p class="text-[11px] text-slate-500 hidden md:block">頂点ラベル・指定角度・精密文房具・吸着対応</p>
+            </div>
+        </div>
+
+        <!-- スナップ & 背景 & グローバル操作 -->
+        <div class="flex items-center space-x-2 flex-wrap">
+            <div class="flex items-center bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                <label for="snap-toggle" class="text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer mr-2">
+                    <i class="fa-solid fa-magnet text-indigo-600"></i> 吸着(スナップ)
+                </label>
+                <input type="checkbox" id="snap-toggle" checked onchange="toggleSnap(this.checked)" class="w-4 h-4 accent-indigo-600 rounded cursor-pointer">
+            </div>
+
+            <div class="bg-slate-100 p-1 rounded-lg border border-slate-200 flex text-xs font-medium text-slate-700">
+                <button id="bg-grid-btn" onclick="setBackground('grid')" class="px-2 py-1 rounded-md bg-white shadow-xs font-semibold text-indigo-600 transition">方眼紙</button>
+                <button id="bg-fineGrid-btn" onclick="setBackground('fineGrid')" class="px-2 py-1 rounded-md hover:text-indigo-600 transition">細かめ</button>
+                <button id="bg-dot-btn" onclick="setBackground('dot')" class="px-2 py-1 rounded-md hover:text-indigo-600 transition">ドット</button>
+                <button id="bg-blank-btn" onclick="setBackground('blank')" class="px-2 py-1 rounded-md hover:text-indigo-600 transition">白紙</button>
+            </div>
+
+            <div class="flex items-center space-x-1">
+                <button onclick="undo()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2 rounded-lg border border-slate-200 text-xs font-semibold transition" title="1つ戻す">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <button onclick="redo()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2 rounded-lg border border-slate-200 text-xs font-semibold transition" title="やり直す">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+                <button onclick="clearCanvas()" class="bg-red-50 hover:bg-red-100 text-red-600 p-2 rounded-lg border border-red-200 text-xs font-semibold transition" title="全消去">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+                <button onclick="downloadCanvas()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-xs transition">
+                    <i class="fa-solid fa-download"></i> <span class="hidden sm:inline">画像保存</span>
+                </button>
+                <button onclick="toggleHelpModal(true)" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-2 rounded-lg border border-indigo-200 text-xs font-semibold transition" title="使い方ガイド">
+                    <i class="fa-solid fa-circle-question text-base"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- メインキャンバス領域 -->
+    <main id="canvas-container" class="relative flex-1 w-full h-full bg-white overflow-hidden">
+        <canvas id="bgCanvas" class="absolute top-0 left-0 w-full h-full pointer-events-none z-0"></canvas>
+        <canvas id="drawCanvas" class="absolute top-0 left-0 w-full h-full z-10 cursor-crosshair"></canvas>
+
+        <!-- Dynamic Overlay Tools -->
+        
+        <!-- 1. 直線定規 -->
+        <div id="ruler" class="tool-overlay hidden z-30" style="width: 420px; height: 75px; top: 100px; left: 80px;">
+            <div class="relative w-full h-full bg-amber-100/90 border-2 border-amber-500 rounded-md shadow-md flex flex-col justify-between backdrop-blur-xs select-none">
+                <svg id="ruler-ticks" class="w-full h-10 stroke-slate-800 fill-slate-800 text-[10px]"></svg>
+                <div class="px-3 pb-1 flex justify-between items-center text-xs font-bold text-amber-900">
+                    <span class="flex items-center gap-1"><i class="fa-solid fa-ruler"></i> 直線定規</span>
+                    <button onclick="drawRulerEdge()" class="bg-amber-600 hover:bg-amber-700 text-white text-[11px] px-2 py-0.5 rounded shadow-xs pointer-events-auto">
+                        <i class="fa-solid fa-pen"></i> フチに沿って描く
+                    </button>
+                </div>
+                <div id="ruler-rotate" class="rotate-handle" style="right: -12px; top: 50%; transform: translateY(-50%);" title="ドラッグして回転">
+                    <i class="fa-solid fa-rotate"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 三角定規A (45°-45°-90°) -->
+        <div id="triangle45" class="tool-overlay hidden z-30" style="width: 250px; height: 250px; top: 120px; left: 180px;">
+            <div class="relative w-full h-full">
+                <svg class="w-full h-full drop-shadow-md">
+                    <polygon points="15,235 235,235 15,15" fill="rgba(251, 191, 36, 0.4)" stroke="#f59e0b" stroke-width="3"/>
+                    <polygon points="55,200 170,200 55,85" fill="white" stroke="#f59e0b" stroke-width="2"/>
+                </svg>
+                <div class="absolute bottom-2 left-8 flex gap-1 z-10">
+                    <button onclick="drawTriangleEdge('triangle45', 'bottom')" class="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">底辺描画</button>
+                    <button onclick="drawTriangleEdge('triangle45', 'left')" class="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">高さ描画</button>
+                    <button onclick="drawTriangleEdge('triangle45', 'hypo')" class="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">斜辺描画</button>
+                </div>
+                <div id="triangle45-rotate" class="rotate-handle" style="top: -10px; right: -10px;" title="回転">
+                    <i class="fa-solid fa-rotate"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 三角定規B (30°-60°-90°) -->
+        <div id="triangle30" class="tool-overlay hidden z-30" style="width: 300px; height: 180px; top: 150px; left: 240px;">
+            <div class="relative w-full h-full">
+                <svg class="w-full h-full drop-shadow-md">
+                    <polygon points="15,165 285,165 15,20" fill="rgba(59, 130, 246, 0.4)" stroke="#3b82f6" stroke-width="3"/>
+                    <polygon points="50,135 220,135 50,55" fill="white" stroke="#3b82f6" stroke-width="2"/>
+                </svg>
+                <div class="absolute bottom-2 left-8 flex gap-1 z-10">
+                    <button onclick="drawTriangleEdge('triangle30', 'bottom')" class="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">底辺描画</button>
+                    <button onclick="drawTriangleEdge('triangle30', 'left')" class="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">高さ描画</button>
+                    <button onclick="drawTriangleEdge('triangle30', 'hypo')" class="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-xs">斜辺描画</button>
+                </div>
+                <div id="triangle30-rotate" class="rotate-handle" style="top: -10px; right: -10px;" title="回転">
+                    <i class="fa-solid fa-rotate"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. コンパス (針の移動・円弧の記録機能付き) -->
+        <div id="compass" class="tool-overlay hidden z-30" style="width: 260px; height: 260px; top: 140px; left: 320px;">
+            <div class="relative w-full h-full">
+                <svg id="compass-svg" class="w-full h-full drop-shadow-md">
+                    <line id="leg-needle" x1="130" y1="30" x2="130" y2="230" stroke="#475569" stroke-width="5" stroke-linecap="round"/>
+                    <line id="leg-pencil" x1="130" y1="30" x2="230" y2="230" stroke="#0284c7" stroke-width="5" stroke-linecap="round"/>
+                    <circle cx="130" cy="30" r="16" fill="#1e293b" stroke="#f8fafc" stroke-width="3"/>
+                    <circle id="compass-needle-point" cx="130" cy="230" r="7" fill="#ef4444" stroke="white" stroke-width="2"/>
+                    <circle id="compass-pencil-point" cx="230" cy="230" r="8" fill="#3b82f6" stroke="white" stroke-width="2"/>
+                </svg>
+
+                <div id="compass-needle-handle" class="absolute w-8 h-8 -ml-4 -mt-4 bg-red-500/20 border-2 border-red-500 rounded-full cursor-move flex items-center justify-center text-red-600" style="left: 130px; top: 230px;" title="針の位置（中心）を移動">
+                    <i class="fa-solid fa-location-crosshairs text-xs"></i>
+                </div>
+
+                <div id="compass-pencil-handle" class="absolute w-8 h-8 -ml-4 -mt-4 bg-blue-500/20 border-2 border-blue-500 rounded-full cursor-ew-resize flex items-center justify-center text-blue-600" style="left: 230px; top: 230px;" title="半径を調整">
+                    <i class="fa-solid fa-pen-line text-xs"></i>
+                </div>
+
+                <div id="compass-sweep-handle" class="absolute w-10 h-10 -ml-5 -mt-5 bg-indigo-600 text-white rounded-full cursor-grab flex items-center justify-center shadow-lg border-2 border-white" style="left: 130px; top: 30px;" title="ドラッグして円弧を描画">
+                    <i class="fa-solid fa-arrows-spin"></i>
+                </div>
+
+                <div class="absolute -bottom-9 left-1/2 -translate-x-1/2 bg-white/95 border border-slate-300 px-3 py-1 rounded-full shadow-xs text-xs font-bold text-slate-700 flex items-center gap-2 whitespace-nowrap">
+                    <span>半径: <span id="compass-radius-text" class="text-indigo-600">3.3</span> cm</span>
+                    <button onclick="drawCompassCircle()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-full text-[11px] transition">
+                        1周円を描く
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. 分度器 (指定角度の線描画アーム対応) -->
+        <div id="protractor" class="tool-overlay hidden z-30" style="width: 320px; height: 170px; top: 160px; left: 200px;">
+            <div class="relative w-full h-full border-b-4 border-indigo-600 bg-sky-200/50 rounded-t-full shadow-lg border-t border-l border-r border-sky-400 backdrop-blur-xs flex justify-center items-end overflow-hidden">
+                <svg id="protractor-svg" class="w-full h-full absolute top-0 left-0"></svg>
+                <div class="absolute bottom-0 w-4 h-4 -mb-2 border-2 border-red-500 bg-red-500/30 rounded-full flex items-center justify-center">
+                    <div class="w-1 h-1 bg-red-600 rounded-full"></div>
+                </div>
+                
+                <!-- 角度操作パネル -->
+                <div class="absolute top-3 flex items-center gap-1.5 bg-white/90 border border-slate-200 px-2 py-0.5 rounded-full shadow-xs">
+                    <span class="text-[11px] font-bold text-slate-700">角度:</span>
+                    <input type="number" id="protractor-angle-input" value="45" min="0" max="180" onchange="setProtractorArmAngle(this.value)" class="w-12 text-center text-xs font-bold border border-slate-300 rounded px-1 py-0.5 text-indigo-600">
+                    <span class="text-xs font-bold text-slate-700">°</span>
+                    <button onclick="drawProtractorAngleLine()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full transition shadow-xs">
+                        線を引く
+                    </button>
+                </div>
+
+                <!-- 角度アーム線 -->
+                <div id="protractor-arm" class="absolute bottom-0 left-1/2 w-0.5 h-36 bg-red-500/80 origin-bottom transform -rotate-45 pointer-events-none"></div>
+                <div id="protractor-rotate" class="rotate-handle" style="top: 10px; right: 15px;" title="回転">
+                    <i class="fa-solid fa-rotate"></i>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 下部コントロールパネル -->
+    <div class="z-20 flex flex-col md:flex-row items-center justify-between p-2.5 bg-white border-t border-slate-200 gap-2.5 shadow-lg">
+        
+        <!-- モード切替（選択・ペン・直線・円・頂点ラベル・指定角度・消しゴム） -->
+        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 w-full md:w-auto justify-center overflow-x-auto">
+            <button id="tool-select" onclick="setTool('select')" class="tool-btn px-2.5 py-1.5 rounded-lg bg-white text-indigo-600 shadow-xs font-bold text-xs flex items-center gap-1 transition whitespace-nowrap">
+                <i class="fa-solid fa-arrow-pointer"></i> 選択・編集
+            </button>
+            <button id="tool-pen" onclick="setTool('pen')" class="tool-btn px-2.5 py-1.5 rounded-lg text-slate-600 font-bold text-xs flex items-center gap-1 transition whitespace-nowrap">
+                <i class="fa-solid fa-pen-nib"></i> ペン
+            </button>
+            <button id="tool-line" onclick="setTool('line')" class="tool-btn px-2.5 py-1.5 rounded-lg text-slate-600 font-bold text-xs flex items-center gap-1 transition whitespace-nowrap">
+                <i class="fa-solid fa-slash"></i> 直線
+            </button>
+            <button id="tool-circle" onclick="setTool('circle')" class="tool-btn px-2.5 py-1.5 rounded-lg text-slate-600 font-bold text-xs flex items-center gap-1 transition whitespace-nowrap">
+                <i class="fa-regular fa-circle"></i> 円
+            </button>
+            <button id="tool-label" onclick="setTool('label')" class="tool-btn px-2.5 py-1.5 rounded-lg text-slate-600 font-bold text-xs flex items-center gap-1 transition whitespace-nowrap">
+                <i class="fa-solid fa-font"></i> 頂点ラベル
+            </button>
+            <button id="tool-eraser" onclick="setTool('eraser')" class="tool-btn px-2.5 py-1.5 rounded-lg text-slate-600 font-bold text-xs flex items-center gap-1 transition whitespace-nowrap">
+                <i class="fa-solid fa-eraser"></i> 消しゴム
+            </button>
+        </div>
+
+        <!-- スタイル設定 & ラベル文字設定 -->
+        <div class="flex items-center gap-3 flex-wrap justify-center">
+            
+            <!-- ラベル専用コントロール（ラベルモード時強調） -->
+            <div id="label-control-panel" class="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg text-xs">
+                <span class="font-bold text-indigo-900">文字:</span>
+                <input type="text" id="label-text-input" value="A" maxlength="3" class="w-10 text-center font-bold bg-white border border-indigo-300 rounded px-1 py-0.5 text-indigo-700">
+                <label class="flex items-center gap-1 font-semibold text-indigo-900 cursor-pointer ml-1">
+                    <input type="checkbox" id="label-auto-increment" checked class="accent-indigo-600"> 次文字へ進む
+                </label>
+            </div>
+
+            <!-- カラーパレット -->
+            <div class="flex items-center gap-1">
+                <button onclick="setColor('#000000')" class="color-btn w-6 h-6 rounded-full bg-black ring-2 ring-indigo-600 transition transform hover:scale-110" data-color="#000000"></button>
+                <button onclick="setColor('#ef4444')" class="color-btn w-6 h-6 rounded-full bg-red-500 transition transform hover:scale-110" data-color="#ef4444"></button>
+                <button onclick="setColor('#3b82f6')" class="color-btn w-6 h-6 rounded-full bg-blue-500 transition transform hover:scale-110" data-color="#3b82f6"></button>
+                <button onclick="setColor('#10b981')" class="color-btn w-6 h-6 rounded-full bg-emerald-500 transition transform hover:scale-110" data-color="#10b981"></button>
+                <button onclick="setColor('#f97316')" class="color-btn w-6 h-6 rounded-full bg-orange-500 transition transform hover:scale-110" data-color="#f97316"></button>
+                <button onclick="setColor('#a855f7')" class="color-btn w-6 h-6 rounded-full bg-purple-500 transition transform hover:scale-110" data-color="#a855f7"></button>
+            </div>
+
+            <!-- 太さ & 線種 -->
+            <div class="flex items-center gap-2 border-l border-slate-200 pl-3">
+                <input type="range" id="lineWidth" min="1" max="12" value="3" onchange="setLineWidth(this.value)" class="w-16 accent-indigo-600 cursor-pointer" title="太さ">
+                <select id="lineStyle" onchange="setLineStyle(this.value)" class="text-xs font-semibold bg-slate-100 border border-slate-200 rounded-lg px-1.5 py-1 text-slate-700">
+                    <option value="solid">実線</option>
+                    <option value="dashed">破線(点線)</option>
+                </select>
+            </div>
+
+            <!-- 選択図形削除ボタン -->
+            <button id="delete-selected-btn" onclick="deleteSelectedShape()" class="hidden bg-red-500 hover:bg-red-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs">
+                <i class="fa-solid fa-trash-can"></i> 選択図形を削除
+            </button>
+        </div>
+
+        <!-- 道具の出し入れパネル -->
+        <div class="flex items-center gap-1 bg-indigo-50/90 p-1 rounded-xl border border-indigo-100 w-full md:w-auto justify-center overflow-x-auto">
+            <span class="text-xs font-bold text-indigo-900 px-1 whitespace-nowrap"><i class="fa-solid fa-toolbox"></i> 文房具:</span>
+            <button id="toggle-ruler" onclick="toggleTool('ruler')" class="px-2 py-1 rounded-lg text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 transition flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-ruler text-amber-600"></i> 定規
+            </button>
+            <button id="toggle-triangle45" onclick="toggleTool('triangle45')" class="px-2 py-1 rounded-lg text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 transition flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-play text-amber-500 -rotate-90"></i> 45°三角定規
+            </button>
+            <button id="toggle-triangle30" onclick="toggleTool('triangle30')" class="px-2 py-1 rounded-lg text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 transition flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-play text-blue-500"></i> 30°三角定規
+            </button>
+            <button id="toggle-compass" onclick="toggleTool('compass')" class="px-2 py-1 rounded-lg text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 transition flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-compass text-blue-600"></i> コンパス
+            </button>
+            <button id="toggle-protractor" onclick="toggleTool('protractor')" class="px-2 py-1 rounded-lg text-xs font-bold bg-white text-slate-700 border border-slate-200 hover:border-indigo-300 transition flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-square-poll-horizontal text-sky-600"></i> 分度器
+            </button>
+        </div>
+
+    </div>
+
+    <!-- 使い方ガイドモーダル -->
+    <div id="help-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-100 flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-100">
+                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-graduation-cap text-indigo-600"></i> 作図スタジオ 機能ガイド
+                </h3>
+                <button onclick="toggleHelpModal(false)" class="text-slate-400 hover:text-slate-600 text-lg p-1">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="py-3 space-y-3 overflow-y-auto text-xs text-slate-600">
+                <div class="bg-indigo-50 p-2.5 rounded-xl border border-indigo-100">
+                    <h4 class="font-bold text-indigo-900 mb-1 flex items-center gap-1">
+                        <i class="fa-solid fa-font text-indigo-600"></i> 1. 頂点ラベル機能
+                    </h4>
+                    <p class="leading-relaxed">
+                        「頂点ラベル」モードを選んでキャンバスの交点や頂点をクリックすると、A, B, Cなどのアルファベットラベルを自動的に配置できます。移動・編集も可能です。
+                    </p>
+                </div>
+
+                <div class="bg-sky-50 p-2.5 rounded-xl border border-sky-100">
+                    <h4 class="font-bold text-sky-900 mb-1 flex items-center gap-1">
+                        <i class="fa-solid fa-square-poll-horizontal text-sky-600"></i> 2. 指定角度の描画 (分度器)
+                    </h4>
+                    <p class="leading-relaxed">
+                        分度器上の数値入力欄に角度（例: 60°）を指定し、「線を引く」を押すと、分度器の中心から正確な角度で線分が自動生成されます。
+                    </p>
+                </div>
+
+                <div class="bg-amber-50 p-2.5 rounded-xl border border-amber-100">
+                    <h4 class="font-bold text-amber-900 mb-1 flex items-center gap-1">
+                        <i class="fa-solid fa-compass text-amber-600"></i> 3. 精密コンパス & 三角定規
+                    </h4>
+                    <p class="leading-relaxed">
+                        コンパスの赤い中心ハンドルで中心位置を自由に変更可能。スイープハンドルを回転させて描いた円弧も保存されます。定規のフチ描画も回転角度に完全同期します。
+                    </p>
+                </div>
+            </div>
+
+            <button onclick="toggleHelpModal(false)" class="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl transition">
+                アプリに戻る
+            </button>
+        </div>
+    </div>
+
+    <!-- メインプログラミングロジック -->
+    <script>
+        // --- アプリケーション状態 (State) ---
+        let currentTool = 'select'; // 'select', 'pen', 'line', 'circle', 'label', 'eraser'
+        let currentColor = '#000000';
+        let currentLineWidth = 3;
+        let currentLineStyle = 'solid'; // 'solid', 'dashed'
+        let currentBgMode = 'grid'; // 'grid', 'fineGrid', 'dot', 'blank'
+        let snapEnabled = true;
+
+        // ベクトルデータ管理
+        let shapes = [];
+        let undoStack = [];
+        let redoStack = [];
+        let selectedShapeId = null;
+        let selectedControlPoint = null;
+
+        let isDrawing = false;
+        let startPoint = { x: 0, y: 0 };
+        let currentPoint = { x: 0, y: 0 };
+        let snapIndicator = null;
+
+        // キャンバス要素
+        const bgCanvas = document.getElementById('bgCanvas');
+        const bgCtx = bgCanvas.getContext('2d');
+        const drawCanvas = document.getElementById('drawCanvas');
+        const ctx = drawCanvas.getContext('2d');
+        const container = document.getElementById('canvas-container');
+
+        // バーチャル文房具状態
+        const toolsState = {
+            ruler: { visible: false, angle: 0 },
+            triangle45: { visible: false, angle: 0 },
+            triangle30: { visible: false, angle: 0 },
+            compass: { visible: false, radiusPx: 100, angle: 0, needlePos: { x: 130, y: 230 } },
+            protractor: { visible: false, angle: 0, armAngle: 45 }
+        };
+
+        // アルファベット自動更新用リスト
+        const labelSequence = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let labelSeqIndex = 0;
+
+        // --- 初期化 ---
+        window.addEventListener('load', () => {
+            resizeCanvas();
+            initRulerTicks();
+            initProtractorSVG();
+            setupPointerEvents();
+            setupCompassLogic();
+            saveState();
+
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+                renderAll();
+            });
+        });
+
+        function resizeCanvas() {
+            const rect = container.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+
+            bgCanvas.width = rect.width * dpr;
+            bgCanvas.height = rect.height * dpr;
+            bgCtx.scale(dpr, dpr);
+
+            drawCanvas.width = rect.width * dpr;
+            drawCanvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            renderBackground();
+            renderAll();
+        }
+
+        // --- 背景描画 ---
+        function setBackground(mode) {
+            currentBgMode = mode;
+            document.querySelectorAll('#bg-grid-btn, #bg-fineGrid-btn, #bg-dot-btn, #bg-blank-btn').forEach(btn => {
+                btn.classList.remove('bg-white', 'shadow-xs', 'font-semibold', 'text-indigo-600');
+            });
+            document.getElementById(`bg-${mode}-btn`).classList.add('bg-white', 'shadow-xs', 'font-semibold', 'text-indigo-600');
+            renderBackground();
+        }
+
+        function renderBackground() {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            bgCtx.clearRect(0, 0, width, height);
+            bgCtx.fillStyle = '#ffffff';
+            bgCtx.fillRect(0, 0, width, height);
+
+            if (currentBgMode === 'blank') return;
+
+            const gridSize = currentBgMode === 'fineGrid' ? 15 : 30;
+
+            if (currentBgMode === 'grid' || currentBgMode === 'fineGrid') {
+                bgCtx.strokeStyle = currentBgMode === 'fineGrid' ? '#f1f5f9' : '#e2e8f0';
+                bgCtx.lineWidth = 1;
+                bgCtx.beginPath();
+
+                for (let x = 0; x <= width; x += gridSize) {
+                    bgCtx.moveTo(x, 0);
+                    bgCtx.lineTo(x, height);
+                }
+                for (let y = 0; y <= height; y += gridSize) {
+                    bgCtx.moveTo(0, y);
+                    bgCtx.lineTo(width, y);
+                }
+                bgCtx.stroke();
+            } else if (currentBgMode === 'dot') {
+                bgCtx.fillStyle = '#cbd5e1';
+                for (let x = gridSize; x < width; x += gridSize) {
+                    for (let y = gridSize; y < height; y += gridSize) {
+                        bgCtx.beginPath();
+                        bgCtx.arc(x, y, 1.5, 0, Math.PI * 2);
+                        bgCtx.fill();
+                    }
+                }
+            }
+        }
+
+        // --- スナップ探索計算 ---
+        function getSnapPoint(rawX, rawY) {
+            if (!snapEnabled) return { x: rawX, y: rawY, snapped: false };
+
+            const SNAP_THRESHOLD = 14;
+            let closest = null;
+            let minDistance = SNAP_THRESHOLD;
+
+            // 1. 既存図形の重要点（端点・中心点・ラベル位置）とのスナップ
+            shapes.forEach(shape => {
+                const pointsToTest = [];
+                if (shape.type === 'line') {
+                    pointsToTest.push({ x: shape.x1, y: shape.y1 }, { x: shape.x2, y: shape.y2 });
+                } else if (shape.type === 'circle' || shape.type === 'arc') {
+                    pointsToTest.push({ x: shape.cx, y: shape.cy });
+                } else if (shape.type === 'label') {
+                    pointsToTest.push({ x: shape.x, y: shape.y });
+                } else if (shape.type === 'pen' && shape.points.length > 0) {
+                    pointsToTest.push(shape.points[0], shape.points[shape.points.length - 1]);
+                }
+
+                pointsToTest.forEach(pt => {
+                    const dist = Math.hypot(pt.x - rawX, pt.y - rawY);
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        closest = { x: pt.x, y: pt.y };
+                    }
+                });
+            });
+
+            if (closest) return { ...closest, snapped: true };
+
+            // 2. 方眼紙グリッドへのスナップ
+            const gridSize = currentBgMode === 'fineGrid' ? 15 : 30;
+            const gridX = Math.round(rawX / gridSize) * gridSize;
+            const gridY = Math.round(rawY / gridSize) * gridSize;
+            const gridDist = Math.hypot(gridX - rawX, gridY - rawY);
+
+            if (gridDist < SNAP_THRESHOLD) {
+                return { x: gridX, y: gridY, snapped: true };
+            }
+
+            return { x: rawX, y: rawY, snapped: false };
+        }
+
+        // --- 作図 ＆ イベント処理 ---
+        function setupPointerEvents() {
+            const getPos = (e) => {
+                const rect = drawCanvas.getBoundingClientRect();
+                return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            };
+
+            drawCanvas.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+                const rawPos = getPos(e);
+                const snap = getSnapPoint(rawPos.x, rawPos.y);
+
+                if (currentTool === 'select') {
+                    if (selectedShapeId !== null) {
+                        const hitHandle = checkControlPointHit(selectedShapeId, rawPos);
+                        if (hitHandle) {
+                            selectedControlPoint = hitHandle;
+                            isDrawing = true;
+                            return;
+                        }
+                    }
+
+                    const hitShape = hitTestShapes(rawPos);
+                    selectedShapeId = hitShape ? hitShape.id : null;
+                    selectedControlPoint = null;
+                    updateSelectionUI();
+                    renderAll();
+                    if (hitShape) {
+                        isDrawing = true;
+                        startPoint = rawPos;
+                    }
+                    return;
+                }
+
+                // 頂点ラベル配置モード
+                if (currentTool === 'label') {
+                    const labelInput = document.getElementById('label-text-input');
+                    const text = labelInput.value.trim() || 'A';
+
+                    shapes.push({
+                        id: Date.now(),
+                        type: 'label',
+                        text: text,
+                        x: snap.x,
+                        y: snap.y,
+                        color: currentColor,
+                        fontSize: 18
+                    });
+
+                    if (document.getElementById('label-auto-increment').checked) {
+                        advanceLabelCharacter();
+                    }
+
+                    saveState();
+                    renderAll();
+                    return;
+                }
+
+                isDrawing = true;
+                startPoint = { x: snap.x, y: snap.y };
+                currentPoint = { x: snap.x, y: snap.y };
+
+                if (currentTool === 'pen') {
+                    shapes.push({
+                        id: Date.now(),
+                        type: 'pen',
+                        points: [{ x: snap.x, y: snap.y }],
+                        color: currentColor,
+                        width: currentLineWidth,
+                        dash: currentLineStyle
+                    });
+                }
+            });
+
+            drawCanvas.addEventListener('pointermove', (e) => {
+                const rawPos = getPos(e);
+                const snap = getSnapPoint(rawPos.x, rawPos.y);
+                snapIndicator = snap.snapped ? { x: snap.x, y: snap.y } : null;
+
+                if (!isDrawing) {
+                    renderAll();
+                    return;
+                }
+
+                if (currentTool === 'select') {
+                    if (selectedShapeId !== null && selectedControlPoint) {
+                        updateShapeControlPoint(selectedShapeId, selectedControlPoint, snap);
+                    } else if (selectedShapeId !== null) {
+                        const dx = rawPos.x - startPoint.x;
+                        const dy = rawPos.y - startPoint.y;
+                        moveShape(selectedShapeId, dx, dy);
+                        startPoint = rawPos;
+                    }
+                    renderAll();
+                    return;
+                }
+
+                currentPoint = { x: snap.x, y: snap.y };
+
+                if (currentTool === 'pen') {
+                    const currentShape = shapes[shapes.length - 1];
+                    currentShape.points.push({ x: snap.x, y: snap.y });
+                } else if (currentTool === 'eraser') {
+                    shapes = shapes.filter(shape => !isPointNearShape(rawPos, shape, 15));
+                }
+
+                renderAll();
+            });
+
+            const endDrawing = () => {
+                if (!isDrawing) return;
+                isDrawing = false;
+
+                if (currentTool === 'line') {
+                    shapes.push({
+                        id: Date.now(),
+                        type: 'line',
+                        x1: startPoint.x, y1: startPoint.y,
+                        x2: currentPoint.x, y2: currentPoint.y,
+                        color: currentColor, width: currentLineWidth, dash: currentLineStyle
+                    });
+                } else if (currentTool === 'circle') {
+                    const radius = Math.hypot(currentPoint.x - startPoint.x, currentPoint.y - startPoint.y);
+                    if (radius > 3) {
+                        shapes.push({
+                            id: Date.now(),
+                            type: 'circle',
+                            cx: startPoint.x, cy: startPoint.y,
+                            r: radius,
+                            color: currentColor, width: currentLineWidth, dash: currentLineStyle
+                        });
+                    }
+                }
+
+                selectedControlPoint = null;
+                saveState();
+                renderAll();
+            };
+
+            drawCanvas.addEventListener('pointerup', endDrawing);
+            drawCanvas.addEventListener('pointercancel', endDrawing);
+        }
+
+        // アルファベット進行関数
+        function advanceLabelCharacter() {
+            const labelInput = document.getElementById('label-text-input');
+            const currentVal = labelInput.value.trim().toUpperCase();
+            
+            if (currentVal.length === 1 && labelSequence.includes(currentVal)) {
+                let idx = labelSequence.indexOf(currentVal);
+                labelInput.value = labelSequence[(idx + 1) % labelSequence.length];
+            }
+        }
+
+        // --- 全体レンダリング ---
+        function renderAll() {
+            ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+
+            shapes.forEach(shape => drawSingleShape(shape));
+
+            if (isDrawing) {
+                if (currentTool === 'line') {
+                    drawSingleShape({
+                        type: 'line', x1: startPoint.x, y1: startPoint.y,
+                        x2: currentPoint.x, y2: currentPoint.y,
+                        color: currentColor, width: currentLineWidth, dash: currentLineStyle
+                    });
+                } else if (currentTool === 'circle') {
+                    const r = Math.hypot(currentPoint.x - startPoint.x, currentPoint.y - startPoint.y);
+                    drawSingleShape({
+                        type: 'circle', cx: startPoint.x, cy: startPoint.y, r: r,
+                        color: currentColor, width: currentLineWidth, dash: currentLineStyle
+                    });
+                }
+            }
+
+            if (selectedShapeId !== null) {
+                const shape = shapes.find(s => s.id === selectedShapeId);
+                if (shape) drawSelectionHighlight(shape);
+            }
+
+            if (snapIndicator) {
+                ctx.save();
+                ctx.strokeStyle = '#10b981';
+                ctx.fillStyle = '#10b981';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(snapIndicator.x, snapIndicator.y, 6, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(snapIndicator.x, snapIndicator.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function drawSingleShape(shape) {
+            ctx.save();
+            ctx.strokeStyle = shape.color;
+            ctx.fillStyle = shape.color;
+            ctx.lineWidth = shape.width || 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            if (shape.dash === 'dashed') {
+                ctx.setLineDash([8, 6]);
+            } else {
+                ctx.setLineDash([]);
+            }
+
+            ctx.beginPath();
+            if (shape.type === 'line') {
+                ctx.moveTo(shape.x1, shape.y1);
+                ctx.lineTo(shape.x2, shape.y2);
+                ctx.stroke();
+            } else if (shape.type === 'circle') {
+                ctx.arc(shape.cx, shape.cy, shape.r, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (shape.type === 'arc') {
+                ctx.arc(shape.cx, shape.cy, shape.r, shape.startAngle, shape.endAngle, false);
+                ctx.stroke();
+            } else if (shape.type === 'label') {
+                ctx.font = `bold ${shape.fontSize || 18}px 'Segoe UI', sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // 背景に白い光沢輪郭を追加して文字を見やすくする
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 4;
+                ctx.strokeText(shape.text, shape.x, shape.y);
+                ctx.fillText(shape.text, shape.x, shape.y);
+            } else if (shape.type === 'pen' && shape.points.length > 0) {
+                ctx.moveTo(shape.points[0].x, shape.points[0].y);
+                for (let i = 1; i < shape.points.length; i++) {
+                    ctx.lineTo(shape.points[i].x, shape.points[i].y);
+                }
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawSelectionHighlight(shape) {
+            ctx.save();
+            ctx.strokeStyle = '#3b82f6';
+            ctx.fillStyle = '#ffffff';
+            ctx.lineWidth = 2;
+
+            if (shape.type === 'line') {
+                [{x: shape.x1, y: shape.y1}, {x: shape.x2, y: shape.y2}].forEach(pt => {
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            } else if (shape.type === 'circle' || shape.type === 'arc') {
+                [{x: shape.cx, y: shape.cy}, {x: shape.cx + shape.r, y: shape.cy}].forEach(pt => {
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            } else if (shape.type === 'label') {
+                ctx.beginPath();
+                ctx.arc(shape.x, shape.y, 12, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        // --- 図形選択・変形ロジック ---
+        function hitTestShapes(pt) {
+            for (let i = shapes.length - 1; i >= 0; i--) {
+                if (isPointNearShape(pt, shapes[i], 12)) {
+                    return shapes[i];
+                }
+            }
+            return null;
+        }
+
+        function isPointNearShape(pt, shape, threshold) {
+            if (shape.type === 'line') {
+                return distToSegment(pt, {x: shape.x1, y: shape.y1}, {x: shape.x2, y: shape.y2}) < threshold;
+            } else if (shape.type === 'circle' || shape.type === 'arc') {
+                const dist = Math.hypot(pt.x - shape.cx, pt.y - shape.cy);
+                return Math.abs(dist - shape.r) < threshold || dist < threshold;
+            } else if (shape.type === 'label') {
+                return Math.hypot(pt.x - shape.x, pt.y - shape.y) < 18;
+            } else if (shape.type === 'pen') {
+                for (let i = 0; i < shape.points.length - 1; i++) {
+                    if (distToSegment(pt, shape.points[i], shape.points[i+1]) < threshold) return true;
+                }
+            }
+            return false;
+        }
+
+        function distToSegment(p, v, w) {
+            const l2 = (v.x - w.x)**2 + (v.y - w.y)**2;
+            if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+        }
+
+        function checkControlPointHit(shapeId, pt) {
+            const shape = shapes.find(s => s.id === shapeId);
+            if (!shape) return null;
+
+            if (shape.type === 'line') {
+                if (Math.hypot(pt.x - shape.x1, pt.y - shape.y1) < 10) return 'start';
+                if (Math.hypot(pt.x - shape.x2, pt.y - shape.y2) < 10) return 'end';
+            } else if (shape.type === 'circle' || shape.type === 'arc') {
+                if (Math.hypot(pt.x - shape.cx, pt.y - shape.cy) < 10) return 'center';
+                if (Math.hypot(pt.x - (shape.cx + shape.r), pt.y - shape.cy) < 10) return 'radius';
+            } else if (shape.type === 'label') {
+                if (Math.hypot(pt.x - shape.x, pt.y - shape.y) < 15) return 'position';
+            }
+            return null;
+        }
+
+        function updateShapeControlPoint(shapeId, handle, snapPt) {
+            const shape = shapes.find(s => s.id === shapeId);
+            if (!shape) return;
+
+            if (shape.type === 'line') {
+                if (handle === 'start') { shape.x1 = snapPt.x; shape.y1 = snapPt.y; }
+                if (handle === 'end') { shape.x2 = snapPt.x; shape.y2 = snapPt.y; }
+            } else if (shape.type === 'circle' || shape.type === 'arc') {
+                if (handle === 'center') { shape.cx = snapPt.x; shape.cy = snapPt.y; }
+                if (handle === 'radius') { shape.r = Math.hypot(snapPt.x - shape.cx, snapPt.y - shape.cy); }
+            } else if (shape.type === 'label') {
+                if (handle === 'position') { shape.x = snapPt.x; shape.y = snapPt.y; }
+            }
+        }
+
+        function moveShape(shapeId, dx, dy) {
+            const shape = shapes.find(s => s.id === shapeId);
+            if (!shape) return;
+
+            if (shape.type === 'line') {
+                shape.x1 += dx; shape.y1 += dy;
+                shape.x2 += dx; shape.y2 += dy;
+            } else if (shape.type === 'circle' || shape.type === 'arc') {
+                shape.cx += dx; shape.cy += dy;
+            } else if (shape.type === 'label') {
+                shape.x += dx; shape.y += dy;
+            } else if (shape.type === 'pen') {
+                shape.points.forEach(p => { p.x += dx; p.y += dy; });
+            }
+        }
+
+        function deleteSelectedShape() {
+            if (selectedShapeId !== null) {
+                shapes = shapes.filter(s => s.id !== selectedShapeId);
+                selectedShapeId = null;
+                updateSelectionUI();
+                saveState();
+                renderAll();
+            }
+        }
+
+        function updateSelectionUI() {
+            const btn = document.getElementById('delete-selected-btn');
+            if (selectedShapeId !== null) {
+                btn.classList.remove('hidden');
+                const shape = shapes.find(s => s.id === selectedShapeId);
+                if (shape) {
+                    currentColor = shape.color;
+                    if (shape.width) {
+                        currentLineWidth = shape.width;
+                        document.getElementById('lineWidth').value = currentLineWidth;
+                    }
+                    if (shape.dash) {
+                        currentLineStyle = shape.dash;
+                        document.getElementById('lineStyle').value = currentLineStyle;
+                    }
+                }
+            } else {
+                btn.classList.add('hidden');
+            }
+        }
+
+        // --- 履歴・保存 (Undo/Redo) ---
+        function saveState() {
+            undoStack.push(JSON.stringify(shapes));
+            if (undoStack.length > 25) undoStack.shift();
+            redoStack = [];
+        }
+
+        function undo() {
+            if (undoStack.length > 1) {
+                redoStack.push(undoStack.pop());
+                shapes = JSON.parse(undoStack[undoStack.length - 1]);
+                selectedShapeId = null;
+                updateSelectionUI();
+                renderAll();
+            }
+        }
+
+        function redo() {
+            if (redoStack.length > 0) {
+                const state = redoStack.pop();
+                undoStack.push(state);
+                shapes = JSON.parse(state);
+                renderAll();
+            }
+        }
+
+        function clearCanvas() {
+            shapes = [];
+            selectedShapeId = null;
+            updateSelectionUI();
+            saveState();
+            renderAll();
+        }
+
+        function downloadCanvas() {
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = drawCanvas.width;
+            exportCanvas.height = drawCanvas.height;
+            const expCtx = exportCanvas.getContext('2d');
+
+            expCtx.drawImage(bgCanvas, 0, 0);
+            expCtx.drawImage(drawCanvas, 0, 0);
+
+            const link = document.createElement('a');
+            link.download = `sakuzu_${new Date().toISOString().slice(0,10)}.png`;
+            link.href = exportCanvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // --- ツールパラメータ変更 ---
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.classList.remove('bg-white', 'text-indigo-600', 'shadow-xs');
+                btn.classList.add('text-slate-600');
+            });
+            document.getElementById(`tool-${tool}`).classList.add('bg-white', 'text-indigo-600', 'shadow-xs');
+
+            if (tool !== 'select') {
+                selectedShapeId = null;
+                updateSelectionUI();
+                renderAll();
+            }
+        }
+
+        function setColor(color) {
+            currentColor = color;
+            if (selectedShapeId !== null) {
+                const shape = shapes.find(s => s.id === selectedShapeId);
+                if (shape) { shape.color = color; saveState(); renderAll(); }
+            }
+        }
+
+        function setLineWidth(val) {
+            currentLineWidth = parseInt(val, 10);
+            if (selectedShapeId !== null) {
+                const shape = shapes.find(s => s.id === selectedShapeId);
+                if (shape && shape.width !== undefined) { shape.width = currentLineWidth; saveState(); renderAll(); }
+            }
+        }
+
+        function setLineStyle(style) {
+            currentLineStyle = style;
+            if (selectedShapeId !== null) {
+                const shape = shapes.find(s => s.id === selectedShapeId);
+                if (shape && shape.dash !== undefined) { shape.dash = style; saveState(); renderAll(); }
+            }
+        }
+
+        function toggleSnap(enabled) {
+            snapEnabled = enabled;
+        }
+
+        function toggleTool(toolName) {
+            const toolEl = document.getElementById(toolName);
+            const toggleBtn = document.getElementById(`toggle-${toolName}`);
+            const isVisible = !toolsState[toolName].visible;
+
+            toolsState[toolName].visible = isVisible;
+
+            if (isVisible) {
+                toolEl.classList.remove('hidden');
+                toggleBtn.classList.add('bg-indigo-600', 'text-white');
+                toggleBtn.classList.remove('bg-white', 'text-slate-700');
+            } else {
+                toolEl.classList.add('hidden');
+                toggleBtn.classList.remove('bg-indigo-600', 'text-white');
+                toggleBtn.classList.add('bg-white', 'text-slate-700');
+            }
+        }
+
+        function toggleHelpModal(show) {
+            const modal = document.getElementById('help-modal');
+            if (show) modal.classList.remove('hidden');
+            else modal.classList.add('hidden');
+        }
+
+        // --- 道具の正確なローカル座標 $\to$ キャンバス座標変換 ---
+        function getToolAbsolutePos(toolId, localX, localY) {
+            const toolEl = document.getElementById(toolId);
+            const containerRect = container.getBoundingClientRect();
+            const left = toolEl.offsetLeft;
+            const top = toolEl.offsetTop;
+            const w = toolEl.offsetWidth;
+            const h = toolEl.offsetHeight;
+            const angleRad = (toolsState[toolId]?.angle || 0) * Math.PI / 180;
+
+            const cx = w / 2;
+            const cy = h / 2;
+            const dx = localX - cx;
+            const dy = localY - cy;
+
+            const rx = dx * Math.cos(angleRad) - dy * Math.sin(angleRad);
+            const ry = dx * Math.sin(angleRad) + dy * Math.cos(angleRad);
+
+            return {
+                x: left + cx + rx,
+                y: top + cy + ry
+            };
+        }
+
+        // --- バーチャル文房具 実装 ---
+        function initRulerTicks() {
+            const svg = document.getElementById('ruler-ticks');
+            const pxPerCm = 30;
+            let svgContent = '';
+
+            for (let i = 0; i <= 12 * 10; i++) {
+                const x = 15 + i * (pxPerCm / 10);
+                let height = 6;
+                if (i % 10 === 0) {
+                    height = 18;
+                    svgContent += `<text x="${x}" y="30" text-anchor="middle" font-size="10" font-weight="bold">${i/10}</text>`;
+                } else if (i % 5 === 0) {
+                    height = 11;
+                }
+                svgContent += `<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="#334155" stroke-width="1.2"/>`;
+            }
+            svg.innerHTML = svgContent;
+
+            setupDraggableTool('ruler', 'ruler-rotate');
+            setupDraggableTool('triangle45', 'triangle45-rotate');
+            setupDraggableTool('triangle30', 'triangle30-rotate');
+        }
+
+        function drawRulerEdge() {
+            const abs1 = getToolAbsolutePos('ruler', 15, 5);
+            const abs2 = getToolAbsolutePos('ruler', 375, 5);
+
+            shapes.push({
+                id: Date.now(),
+                type: 'line',
+                x1: abs1.x, y1: abs1.y,
+                x2: abs2.x, y2: abs2.y,
+                color: currentColor, width: currentLineWidth, dash: currentLineStyle
+            });
+
+            saveState();
+            renderAll();
+        }
+
+        function drawTriangleEdge(toolId, edge) {
+            let p1 = { x: 0, y: 0 }, p2 = { x: 0, y: 0 };
+
+            if (toolId === 'triangle45') {
+                if (edge === 'bottom') { p1 = {x: 15, y: 235}; p2 = {x: 235, y: 235}; }
+                else if (edge === 'left') { p1 = {x: 15, y: 235}; p2 = {x: 15, y: 15}; }
+                else if (edge === 'hypo') { p1 = {x: 235, y: 235}; p2 = {x: 15, y: 15}; }
+            } else if (toolId === 'triangle30') {
+                if (edge === 'bottom') { p1 = {x: 15, y: 165}; p2 = {x: 285, y: 165}; }
+                else if (edge === 'left') { p1 = {x: 15, y: 165}; p2 = {x: 15, y: 20}; }
+                else if (edge === 'hypo') { p1 = {x: 285, y: 165}; p2 = {x: 15, y: 20}; }
+            }
+
+            const abs1 = getToolAbsolutePos(toolId, p1.x, p1.y);
+            const abs2 = getToolAbsolutePos(toolId, p2.x, p2.y);
+
+            shapes.push({
+                id: Date.now(),
+                type: 'line',
+                x1: abs1.x, y1: abs1.y,
+                x2: abs2.x, y2: abs2.y,
+                color: currentColor, width: currentLineWidth, dash: currentLineStyle
+            });
+
+            saveState();
+            renderAll();
+        }
+
+        // --- コンパス制御（針の移動・円弧永続化対応） ---
+        function setupCompassLogic() {
+            const needleHandle = document.getElementById('compass-needle-handle');
+            const pencilHandle = document.getElementById('compass-pencil-handle');
+            const sweepHandle = document.getElementById('compass-sweep-handle');
+
+            let needlePos = toolsState.compass.needlePos;
+            let pencilPos = { x: 230, y: 230 };
+
+            function updateCompassGraphics() {
+                document.getElementById('leg-needle').setAttribute('x2', needlePos.x);
+                document.getElementById('leg-needle').setAttribute('y2', needlePos.y);
+                document.getElementById('leg-pencil').setAttribute('x2', pencilPos.x);
+                document.getElementById('leg-pencil').setAttribute('y2', pencilPos.y);
+
+                document.getElementById('compass-needle-point').setAttribute('cx', needlePos.x);
+                document.getElementById('compass-needle-point').setAttribute('cy', needlePos.y);
+                document.getElementById('compass-pencil-point').setAttribute('cx', pencilPos.x);
+                document.getElementById('compass-pencil-point').setAttribute('cy', pencilPos.y);
+
+                needleHandle.style.left = `${needlePos.x}px`;
+                needleHandle.style.top = `${needlePos.y}px`;
+                pencilHandle.style.left = `${pencilPos.x}px`;
+                pencilHandle.style.top = `${pencilPos.y}px`;
+
+                const dx = pencilPos.x - needlePos.x;
+                const dy = pencilPos.y - needlePos.y;
+                toolsState.compass.radiusPx = Math.sqrt(dx * dx + dy * dy);
+
+                document.getElementById('compass-radius-text').innerText = (toolsState.compass.radiusPx / 30).toFixed(1);
+            }
+
+            // 針の位置（中心点）ドラッグ機能
+            setupHandleDrag(needleHandle, (dx, dy, e) => {
+                const rect = document.getElementById('compass').getBoundingClientRect();
+                needlePos.x = Math.max(20, Math.min(240, e.clientX - rect.left));
+                needlePos.y = Math.max(20, Math.min(240, e.clientY - rect.top));
+                updateCompassGraphics();
+            });
+
+            // 鉛筆の位置（半径）ドラッグ機能
+            setupHandleDrag(pencilHandle, (dx, dy, e) => {
+                const rect = document.getElementById('compass').getBoundingClientRect();
+                pencilPos.x = Math.max(30, Math.min(250, e.clientX - rect.left));
+                pencilPos.y = Math.max(30, Math.min(250, e.clientY - rect.top));
+                updateCompassGraphics();
+            });
+
+            let isSweeping = false;
+            let startAngle = 0;
+            let lastAngle = 0;
+            let sweepCenter = { x: 0, y: 0 };
+
+            sweepHandle.addEventListener('pointerdown', (e) => {
+                isSweeping = true;
+                sweepHandle.setPointerCapture(e.pointerId);
+                const absNeedle = getToolAbsolutePos('compass', needlePos.x, needlePos.y);
+                sweepCenter = absNeedle;
+
+                const rect = drawCanvas.getBoundingClientRect();
+                const curX = e.clientX - rect.left;
+                const curY = e.clientY - rect.top;
+
+                startAngle = Math.atan2(curY - sweepCenter.y, curX - sweepCenter.x);
+                lastAngle = startAngle;
+            });
+
+            sweepHandle.addEventListener('pointermove', (e) => {
+                if (!isSweeping) return;
+                const rect = drawCanvas.getBoundingClientRect();
+                const curX = e.clientX - rect.left;
+                const curY = e.clientY - rect.top;
+
+                const currentAngle = Math.atan2(curY - sweepCenter.y, curX - sweepCenter.x);
+
+                ctx.beginPath();
+                ctx.arc(sweepCenter.x, sweepCenter.y, toolsState.compass.radiusPx, lastAngle, currentAngle, false);
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = currentLineWidth;
+                ctx.stroke();
+
+                lastAngle = currentAngle;
+            });
+
+            sweepHandle.addEventListener('pointerup', () => {
+                if (isSweeping) {
+                    isSweeping = false;
+                    shapes.push({
+                        id: Date.now(),
+                        type: 'arc',
+                        cx: sweepCenter.x,
+                        cy: sweepCenter.y,
+                        r: toolsState.compass.radiusPx,
+                        startAngle: startAngle,
+                        endAngle: lastAngle,
+                        color: currentColor,
+                        width: currentLineWidth,
+                        dash: currentLineStyle
+                    });
+                    saveState();
+                    renderAll();
+                }
+            });
+
+            updateCompassGraphics();
+            setupDraggableTool('compass', null);
+        }
+
+        function drawCompassCircle() {
+            const absNeedle = getToolAbsolutePos('compass', toolsState.compass.needlePos.x, toolsState.compass.needlePos.y);
+
+            shapes.push({
+                id: Date.now(),
+                type: 'circle',
+                cx: absNeedle.x, cy: absNeedle.y,
+                r: toolsState.compass.radiusPx,
+                color: currentColor, width: currentLineWidth, dash: currentLineStyle
+            });
+
+            saveState();
+            renderAll();
+        }
+
+        // --- 分度器 ＆ 指定角度の描画機能 ---
+        function initProtractorSVG() {
+            const svg = document.getElementById('protractor-svg');
+            let content = '';
+            const cx = 160, cy = 160, r = 145;
+
+            for (let deg = 0; deg <= 180; deg += 1) {
+                const rad = (180 - deg) * Math.PI / 180;
+                let tickLen = 6;
+                if (deg % 10 === 0) tickLen = 16;
+                else if (deg % 5 === 0) tickLen = 11;
+
+                const x1 = cx + r * Math.cos(rad);
+                const y1 = cy - r * Math.sin(rad);
+                const x2 = cx + (r - tickLen) * Math.cos(rad);
+                const y2 = cy - (r - tickLen) * Math.sin(rad);
+
+                content += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#0f172a" stroke-width="${deg % 5 === 0 ? 1.5 : 0.8}"/>`;
+
+                if (deg % 10 === 0) {
+                    const tx = cx + (r - 26) * Math.cos(rad);
+                    const ty = cy - (r - 26) * Math.sin(rad);
+                    content += `<text x="${tx}" y="${ty + 4}" text-anchor="middle" font-size="9" font-weight="bold" fill="#0f172a">${deg}</text>`;
+                }
+            }
+            svg.innerHTML = content;
+            setupDraggableTool('protractor', 'protractor-rotate');
+        }
+
+        function setProtractorArmAngle(val) {
+            let angle = parseFloat(val) || 0;
+            angle = Math.max(0, Math.min(180, angle));
+            toolsState.protractor.armAngle = angle;
+            document.getElementById('protractor-arm').style.transform = `rotate(-${angle}deg)`;
+        }
+
+        function drawProtractorAngleLine() {
+            const centerAbs = getToolAbsolutePos('protractor', 160, 160);
+            const toolAngleRad = (toolsState.protractor.angle || 0) * Math.PI / 180;
+            const armAngleRad = (toolsState.protractor.armAngle || 0) * Math.PI / 180;
+            
+            // 分度器自体の回転 + アーム角度を合成計算
+            const totalRad = toolAngleRad - armAngleRad;
+            const length = 180;
+
+            const endX = centerAbs.x + length * Math.cos(totalRad);
+            const endY = centerAbs.y + length * Math.sin(totalRad);
+
+            shapes.push({
+                id: Date.now(),
+                type: 'line',
+                x1: centerAbs.x, y1: centerAbs.y,
+                x2: endX, y2: endY,
+                color: currentColor, width: currentLineWidth, dash: currentLineStyle
+            });
+
+            saveState();
+            renderAll();
+        }
+
+        // --- ドラグ・回転 汎用セットアップ ---
+        function setupDraggableTool(toolId, rotateHandleId) {
+            const toolEl = document.getElementById(toolId);
+            let isDragging = false;
+            let startX = 0, startY = 0;
+
+            toolEl.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('.rotate-handle') || e.target.closest('button') || e.target.closest('input') || e.target.id.includes('handle')) return;
+                isDragging = true;
+                toolEl.setPointerCapture(e.pointerId);
+                startX = e.clientX - toolEl.offsetLeft;
+                startY = e.clientY - toolEl.offsetTop;
+            });
+
+            toolEl.addEventListener('pointermove', (e) => {
+                if (!isDragging) return;
+                toolEl.style.left = `${e.clientX - startX}px`;
+                toolEl.style.top = `${e.clientY - startY}px`;
+            });
+
+            const stopDrag = () => { isDragging = false; };
+            toolEl.addEventListener('pointerup', stopDrag);
+            toolEl.addEventListener('pointercancel', stopDrag);
+
+            if (rotateHandleId) {
+                const rotateHandle = document.getElementById(rotateHandleId);
+                let isRotating = false;
+
+                rotateHandle.addEventListener('pointerdown', (e) => {
+                    isRotating = true;
+                    rotateHandle.setPointerCapture(e.pointerId);
+                    e.stopPropagation();
+                });
+
+                rotateHandle.addEventListener('pointermove', (e) => {
+                    if (!isRotating) return;
+                    const rect = toolEl.getBoundingClientRect();
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+
+                    const rad = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+                    let deg = Math.round(rad * (180 / Math.PI));
+
+                    toolsState[toolId].angle = deg;
+                    toolEl.style.transform = `rotate(${deg}deg)`;
+                });
+
+                rotateHandle.addEventListener('pointerup', () => { isRotating = false; });
+            }
+        }
+
+        function setupHandleDrag(handleEl, onDrag) {
+            let dragging = false;
+            handleEl.addEventListener('pointerdown', (e) => {
+                dragging = true;
+                handleEl.setPointerCapture(e.pointerId);
+                e.stopPropagation();
+            });
+            handleEl.addEventListener('pointermove', (e) => {
+                if (dragging) onDrag(e.movementX, e.movementY, e);
+            });
+            handleEl.addEventListener('pointerup', () => { dragging = false; });
+        }
+    </script>
+</body>
+</html>
+
